@@ -55,6 +55,16 @@
     }
     textarea { min-height: 110px; resize: vertical; }
     .hint { margin-top: 12px; font-size: 14px; }
+    .status {
+      display: block;
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #f2f2f2;
+      color: #555;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
     @media (max-width: 380px) { .actions { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -88,6 +98,19 @@
         <button class="secondary" type="submit" value="video">自定义视频导入</button>
       </div>
     </form>
+
+    <section class="card">
+      <h2>本地相册实验</h2>
+      <p>素材只在手机本地处理，不会上传到本站。</p>
+      <label>选择一张图片或一个视频
+        <input id="local-media" type="file" accept="image/*,video/*">
+      </label>
+      <div class="actions" style="margin-top:16px">
+        <button id="share-local" type="button">系统分享本地素材</button>
+        <button class="secondary" id="try-local-id" type="button">检测并尝试资源 ID</button>
+      </div>
+      <output class="status" id="local-status" aria-live="polite">尚未选择素材。</output>
+    </section>
   </main>
 
   <script>
@@ -100,12 +123,23 @@
       return value.trim().split(/[\s,，#]+/).filter(Boolean).map(topic => `#${topic}`).join(' ');
     }
 
+    function schemeUrl(type, attach) {
+      return `xhsdiscover://post_new_note?attach=${encodeURIComponent(JSON.stringify(attach))}&page=${encodeURIComponent(JSON.stringify(page(type)))}&source=${encodeURIComponent(JSON.stringify(source))}`;
+    }
+
+    function draftContent() {
+      const title = document.querySelector('#title').value.trim();
+      const body = document.querySelector('#body').value.trim();
+      const topics = normalizeTopics(document.querySelector('#topics').value);
+      return { title, content: [body, topics].filter(Boolean).join('\n\n') };
+    }
+
     function buildUrl(type, title, body, topics) {
       const content = [body.trim(), normalizeTopics(topics)].filter(Boolean).join('\n\n');
       const attach = type === 'photo'
         ? { note_title: title.trim(), note_text_v2: { content }, image_resources: [{ url: imageUrl }] }
         : { note_title: title.trim(), note_text_v2: { content }, video_resources: { video_url: videoUrl, cover_url: imageUrl } };
-      return `xhsdiscover://post_new_note?attach=${encodeURIComponent(JSON.stringify(attach))}&page=${encodeURIComponent(JSON.stringify(page(type)))}&source=${encodeURIComponent(JSON.stringify(source))}`;
+      return schemeUrl(type, attach);
     }
 
     document.querySelector('#test-photo').href = buildUrl(
@@ -123,6 +157,62 @@
         document.querySelector('#body').value,
         document.querySelector('#topics').value
       );
+    });
+
+    const mediaInput = document.querySelector('#local-media');
+    const localStatus = document.querySelector('#local-status');
+    const assetIdKeys = ['localIdentifier', 'assetIdentifier', 'imageID', 'videoID'];
+
+    function selectedFile() {
+      return mediaInput.files && mediaInput.files[0];
+    }
+
+    function assetId(file) {
+      for (const key of assetIdKeys) {
+        if (typeof file[key] === 'string' && file[key]) return { key, value: file[key] };
+      }
+      return null;
+    }
+
+    function fileSummary(file) {
+      const size = (file.size / 1024 / 1024).toFixed(2);
+      const found = assetId(file);
+      return `${file.name}\n类型：${file.type || '浏览器未提供'}\n大小：${size} MB\n相册资源 ID：${found ? `${found.key} = ${found.value}` : '浏览器未暴露'}`;
+    }
+
+    mediaInput.addEventListener('change', () => {
+      const file = selectedFile();
+      localStatus.textContent = file ? fileSummary(file) : '尚未选择素材。';
+    });
+
+    document.querySelector('#share-local').addEventListener('click', async () => {
+      const file = selectedFile();
+      if (!file) return void (localStatus.textContent = '请先选择一张图片或一个视频。');
+      if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
+        return void (localStatus.textContent = `${fileSummary(file)}\n当前浏览器不支持分享本地文件，请在 Safari 中打开本页再试。`);
+      }
+      const draft = draftContent();
+      try {
+        await navigator.share({ files: [file], title: draft.title, text: draft.content });
+        localStatus.textContent = `${fileSummary(file)}\n系统分享已完成或关闭，请检查小红书是否同时收到素材和文字。`;
+      } catch (error) {
+        localStatus.textContent = `${fileSummary(file)}\n系统分享未完成：${error.message}`;
+      }
+    });
+
+    document.querySelector('#try-local-id').addEventListener('click', () => {
+      const file = selectedFile();
+      if (!file) return void (localStatus.textContent = '请先选择一张图片或一个视频。');
+      const found = assetId(file);
+      if (!found) {
+        return void (localStatus.textContent = `${fileSummary(file)}\n检测了 ${assetIdKeys.join('、')}，均无法读取，因此没有调用 xhsdiscover。`);
+      }
+      const draft = draftContent();
+      const type = file.type.startsWith('video/') ? 'video' : 'photo';
+      const attach = type === 'photo'
+        ? { note_title: draft.title, note_text_v2: { content: draft.content }, image_resources: [{ image_id: found.value }] }
+        : { note_title: draft.title, note_text_v2: { content: draft.content }, video_resources: { video: { video_id: found.value } } };
+      location.href = schemeUrl(type, attach);
     });
   </script>
 </body>
