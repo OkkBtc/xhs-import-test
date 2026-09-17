@@ -92,7 +92,7 @@
       <label>话题
         <input id="topics" value="测试话题" placeholder="多个话题用空格或逗号分隔">
       </label>
-      <p class="hint">输入“测试话题”会自动转换为“#测试话题”。</p>
+      <p class="hint">输入“测试话题”会自动补成普通文本“#测试话题”；蓝色话题需在小红书里点选。</p>
       <div class="actions" style="margin-top:16px">
         <button type="submit" value="photo">自定义图文导入</button>
         <button class="secondary" type="submit" value="video">自定义视频导入</button>
@@ -100,14 +100,17 @@
     </form>
 
     <section class="card">
-      <h2>本地相册实验</h2>
-      <p>素材只在手机本地处理，不会上传到本站。</p>
-      <label>选择一张图片或一个视频
-        <input id="local-media" type="file" accept="image/*,video/*">
+      <h2>本地相册导入</h2>
+      <p>素材只在手机本地处理，不会上传到本站。图片和视频请二选一。</p>
+      <label>选择 1–18 张图片
+        <input id="local-images" type="file" accept="image/*" multiple>
       </label>
-      <div class="actions" style="margin-top:16px">
-        <button id="share-local" type="button">系统分享本地素材</button>
-        <button class="secondary" id="try-local-id" type="button">检测并尝试资源 ID</button>
+      <label>或选择 1 个视频
+        <input id="local-video" type="file" accept="video/*">
+      </label>
+      <p class="hint">点击分享时会自动复制“标题＋正文＋#话题”。小红书会忽略分享文字，需要进入后粘贴；粘贴的 #话题 是普通黑字，蓝色话题仍需在小红书里点选。</p>
+      <div class="actions" style="margin-top:16px;grid-template-columns:1fr">
+        <button id="share-local" type="button">复制文字并系统分享</button>
       </div>
       <output class="status" id="local-status" aria-live="polite">尚未选择素材。</output>
     </section>
@@ -159,60 +162,69 @@
       );
     });
 
-    const mediaInput = document.querySelector('#local-media');
+    const imageInput = document.querySelector('#local-images');
+    const videoInput = document.querySelector('#local-video');
     const localStatus = document.querySelector('#local-status');
-    const assetIdKeys = ['localIdentifier', 'assetIdentifier', 'imageID', 'videoID'];
 
-    function selectedFile() {
-      return mediaInput.files && mediaInput.files[0];
+    function selectedFiles() {
+      return [...(imageInput.files.length ? imageInput.files : videoInput.files)];
     }
 
-    function assetId(file) {
-      for (const key of assetIdKeys) {
-        if (typeof file[key] === 'string' && file[key]) return { key, value: file[key] };
-      }
-      return null;
+    function selectionError(files) {
+      if (!files.length) return '请先选择 1–18 张图片，或选择 1 个视频。';
+      if (files.every(file => file.type.startsWith('image/')))
+        return files.length > 18 ? '图片最多只能选择 18 张，请重新选择。' : '';
+      if (files.length === 1 && files[0].type.startsWith('video/')) return '';
+      return '只能分享 1–18 张纯图片，或 1 个视频，不能混选。';
     }
 
-    function fileSummary(file) {
-      const size = (file.size / 1024 / 1024).toFixed(2);
-      const found = assetId(file);
-      return `${file.name}\n类型：${file.type || '浏览器未提供'}\n大小：${size} MB\n相册资源 ID：${found ? `${found.key} = ${found.value}` : '浏览器未暴露'}`;
+    function fileSummary(files) {
+      const size = files.reduce((total, file) => total + file.size, 0) / 1024 / 1024;
+      const kind = files[0].type.startsWith('video/') ? '1 个视频' : `${files.length} 张图片`;
+      return `已选择：${kind}\n总大小：${size.toFixed(2)} MB`;
     }
 
-    mediaInput.addEventListener('change', () => {
-      const file = selectedFile();
-      localStatus.textContent = file ? fileSummary(file) : '尚未选择素材。';
+    function copyText(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      textarea.setSelectionRange(0, text.length);
+      const copied = document.execCommand('copy');
+      textarea.remove();
+      return copied;
+    }
+
+    imageInput.addEventListener('change', () => {
+      if (imageInput.files.length) videoInput.value = '';
+      const files = selectedFiles();
+      localStatus.textContent = selectionError(files) || fileSummary(files);
+    });
+
+    videoInput.addEventListener('change', () => {
+      if (videoInput.files.length) imageInput.value = '';
+      const files = selectedFiles();
+      localStatus.textContent = selectionError(files) || fileSummary(files);
     });
 
     document.querySelector('#share-local').addEventListener('click', async () => {
-      const file = selectedFile();
-      if (!file) return void (localStatus.textContent = '请先选择一张图片或一个视频。');
-      if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })) {
-        return void (localStatus.textContent = `${fileSummary(file)}\n当前浏览器不支持分享本地文件，请在 Safari 中打开本页再试。`);
-      }
-      const draft = draftContent();
-      try {
-        await navigator.share({ files: [file], title: draft.title, text: draft.content });
-        localStatus.textContent = `${fileSummary(file)}\n系统分享已完成或关闭，请检查小红书是否同时收到素材和文字。`;
-      } catch (error) {
-        localStatus.textContent = `${fileSummary(file)}\n系统分享未完成：${error.message}`;
-      }
-    });
+      const files = selectedFiles();
+      const error = selectionError(files);
+      if (error) return void (localStatus.textContent = error);
+      if (!navigator.share || !navigator.canShare || !navigator.canShare({ files }))
+        return void (localStatus.textContent = `${fileSummary(files)}\n当前浏览器不支持分享这些本地文件，请在 Safari 中打开本页再试。`);
 
-    document.querySelector('#try-local-id').addEventListener('click', () => {
-      const file = selectedFile();
-      if (!file) return void (localStatus.textContent = '请先选择一张图片或一个视频。');
-      const found = assetId(file);
-      if (!found) {
-        return void (localStatus.textContent = `${fileSummary(file)}\n检测了 ${assetIdKeys.join('、')}，均无法读取，因此没有调用 xhsdiscover。`);
-      }
       const draft = draftContent();
-      const type = file.type.startsWith('video/') ? 'video' : 'photo';
-      const attach = type === 'photo'
-        ? { note_title: draft.title, note_text_v2: { content: draft.content }, image_resources: [{ image_id: found.value }] }
-        : { note_title: draft.title, note_text_v2: { content: draft.content }, video_resources: { video: { video_id: found.value } } };
-      location.href = schemeUrl(type, attach);
+      const copied = copyText([draft.title, draft.content].filter(Boolean).join('\n\n'));
+      try {
+        await navigator.share({ files, title: draft.title, text: draft.content });
+        localStatus.textContent = `${fileSummary(files)}\n素材分享已完成；文字${copied ? '已复制，请在小红书中粘贴' : '未能自动复制'}。`;
+      } catch (error) {
+        localStatus.textContent = `${fileSummary(files)}\n系统分享未完成：${error.message}\n文字${copied ? '已经复制' : '未能自动复制'}。`;
+      }
     });
   </script>
 </body>
