@@ -103,7 +103,7 @@
       <label>话题
         <input id="topics" value="测试话题" placeholder="多个话题用空格或逗号分隔">
       </label>
-      <p class="hint">输入“测试话题”会自动补成普通文本“#测试话题”；蓝色话题需在小红书里点选。</p>
+      <p class="hint">正文和话题会一起传入小红书；话题自动转换为已经验证成功的“#话题[话题]#”蓝色格式。</p>
       <div class="actions" style="margin-top:16px">
         <button type="submit" value="photo">自定义图文导入</button>
         <button class="secondary" type="submit" value="video">自定义视频导入</button>
@@ -119,9 +119,9 @@
       <label>或选择 1 个视频
         <input id="local-video" type="file" accept="video/*">
       </label>
-      <p class="hint">点击分享时会自动复制“标题＋正文＋#话题”。小红书会忽略分享文字，需要进入后粘贴；粘贴的 #话题 是普通黑字，蓝色话题仍需在小红书里点选。</p>
+      <p class="hint">Safari 会一次性分享本地素材、标题、正文和蓝色话题格式，同时复制完整文字作为后备。进入小红书后请检查素材、标题、正文、蓝色话题四项。</p>
       <div class="actions" style="margin-top:16px;grid-template-columns:1fr">
-        <button id="share-local" type="button">复制文字并系统分享</button>
+        <button id="share-local" type="button">完整分享本地素材</button>
       </div>
       <output class="status" id="local-status" aria-live="polite">尚未选择素材。</output>
     </section>
@@ -139,8 +139,9 @@
       link: 'https://www.xiaohongshu.com/page/topics/5d35dd9ba059940001703e38?naviHidden=yes'
     };
 
-    function normalizeTopics(value) {
-      return value.trim().split(/[\s,，#]+/).filter(Boolean).map(topic => `#${topic}`).join(' ');
+    function formatTopics(value) {
+      return value.trim().split(/[\s,，#]+/).filter(Boolean)
+        .map(topic => `#${topic.replace(/\[话题\]$/, '')}[话题]#`).join(' ');
     }
 
     function schemeUrl(type, attach) {
@@ -150,12 +151,12 @@
     function draftContent() {
       const title = document.querySelector('#title').value.trim();
       const body = document.querySelector('#body').value.trim();
-      const topics = normalizeTopics(document.querySelector('#topics').value);
+      const topics = formatTopics(document.querySelector('#topics').value);
       return { title, content: [body, topics].filter(Boolean).join('\n\n') };
     }
 
     function buildUrl(type, title, body, topics) {
-      const content = [body.trim(), normalizeTopics(topics)].filter(Boolean).join('\n\n');
+      const content = [body.trim(), formatTopics(topics)].filter(Boolean).join('\n\n');
       const attach = type === 'photo'
         ? { note_title: title.trim(), note_text_v2: { content }, image_resources: [{ url: imageUrl }] }
         : { note_title: title.trim(), note_text_v2: { content }, video_resources: { video_url: videoUrl, cover_url: imageUrl } };
@@ -250,14 +251,15 @@
       const files = selectedFiles();
       const error = selectionError(files);
       if (error) return void (localStatus.textContent = error);
-      if (!navigator.share || !navigator.canShare || !navigator.canShare({ files }))
+      const draft = draftContent();
+      const shareData = { files, title: draft.title, text: draft.content };
+      if (!navigator.share || !navigator.canShare || !navigator.canShare(shareData))
         return void (localStatus.textContent = `${fileSummary(files)}\n当前浏览器不支持分享这些本地文件，请在 Safari 中打开本页再试。`);
 
-      const draft = draftContent();
       const copied = copyText([draft.title, draft.content].filter(Boolean).join('\n\n'));
       try {
-        await navigator.share({ files, title: draft.title, text: draft.content });
-        localStatus.textContent = `${fileSummary(files)}\n素材分享已完成；文字${copied ? '已复制，请在小红书中粘贴' : '未能自动复制'}。`;
+        await navigator.share(shareData);
+        localStatus.textContent = `${fileSummary(files)}\n已调用系统分享：素材＋标题＋正文＋话题。\n请检查小红书中的四项内容；完整文字${copied ? '也已复制，缺失时可粘贴' : '未能复制'}。`;
       } catch (error) {
         localStatus.textContent = `${fileSummary(files)}\n系统分享未完成：${error.message}\n文字${copied ? '已经复制' : '未能自动复制'}。`;
       }
