@@ -119,7 +119,7 @@
       <label>或选择 1 个视频
         <input id="local-video" type="file" accept="video/*">
       </label>
-      <p class="hint">Safari 会一次性分享本地素材、标题、正文和蓝色话题格式，同时复制完整文字作为后备。进入小红书后请检查四项；返回 Safari 时页面会自动刷新，清除系统分享残留遮罩。</p>
+      <p class="hint">Safari 系统分享只提供一个可靠文本项：本轮用它传标题，并反向尝试用分享标题传正文＋蓝色话题；正文和话题也会单独复制作为后备。返回 Safari 后页面会延迟刷新，恢复点击。</p>
       <div class="actions" style="margin-top:16px;grid-template-columns:1fr">
         <button id="share-local" type="button">完整分享本地素材</button>
       </div>
@@ -203,11 +203,17 @@
     const videoInput = document.querySelector('#local-video');
     const localStatus = document.querySelector('#local-status');
     let localShareActive = false;
+    let shareRecoveryScheduled = false;
 
     function recoverFromShare() {
-      if (localShareActive && document.visibilityState === 'visible') {
+      if (localShareActive && !shareRecoveryScheduled && document.visibilityState === 'visible') {
         localShareActive = false;
-        location.reload();
+        shareRecoveryScheduled = true;
+        setTimeout(() => {
+          const url = new URL(location.href);
+          url.searchParams.set('returned', Date.now());
+          location.replace(url.href);
+        }, 800);
       }
     }
 
@@ -262,15 +268,15 @@
       const error = selectionError(files);
       if (error) return void (localStatus.textContent = error);
       const draft = draftContent();
-      const shareData = { files, title: draft.title, text: draft.content };
+      const shareData = { files, title: draft.content, text: draft.title };
       if (!navigator.share || !navigator.canShare || !navigator.canShare(shareData))
         return void (localStatus.textContent = `${fileSummary(files)}\n当前浏览器不支持分享这些本地文件，请在 Safari 中打开本页再试。`);
 
-      const copied = copyText([draft.title, draft.content].filter(Boolean).join('\n\n'));
+      const copied = copyText(draft.content);
       localShareActive = true;
       try {
         await navigator.share(shareData);
-        localStatus.textContent = `${fileSummary(files)}\n已调用系统分享：素材＋标题＋正文＋话题。\n请检查小红书中的四项内容；完整文字${copied ? '也已复制，缺失时可粘贴' : '未能复制'}。`;
+        localStatus.textContent = `${fileSummary(files)}\n已调用系统分享：素材＋标题，并尝试传入正文＋话题。\n正文和话题${copied ? '也已复制，若正文为空请直接粘贴' : '未能复制'}。`;
         setTimeout(recoverFromShare, 0);
       } catch (error) {
         localShareActive = false;
