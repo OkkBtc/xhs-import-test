@@ -81,6 +81,17 @@
       </div>
     </section>
 
+    <section class="card">
+      <h2>蓝色话题协议测试</h2>
+      <p>三次测试都使用同一个真实话题“Python”和同一张图片。进入小红书后，只检查文案末尾的话题是否已经是蓝色可点击状态，不要发布。</p>
+      <div class="actions" style="margin-top:16px">
+        <a class="button" id="topic-test-a" href="#">A 结构化文字</a>
+        <a class="button secondary" id="topic-test-b" href="#">B 加不可见标记</a>
+        <a class="button" id="topic-test-c" href="#">C 加话题实体</a>
+      </div>
+      <p class="hint">请依次测试 A、B、C，并记下哪些按钮打开后话题是蓝色。若小红书只显示普通黑字，也请按原样反馈。</p>
+    </section>
+
     <form class="card" id="custom-form">
       <h2>自定义内容测试</h2>
       <label>标题
@@ -121,6 +132,12 @@
     const videoUrl = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
     const page = type => ({ page_type: type === 'photo' ? 'photo_publish' : 'video_publish' });
     const source = { type: 'external_app', extraInfo: { subType: 'OpenSDK' } };
+    const testTopic = {
+      id: '5d35dd9b000000000e0088dc',
+      name: 'Python',
+      type: 'topic',
+      link: 'https://www.xiaohongshu.com/page/topics/5d35dd9ba059940001703e38?naviHidden=yes'
+    };
 
     function normalizeTopics(value) {
       return value.trim().split(/[\s,，#]+/).filter(Boolean).map(topic => `#${topic}`).join(' ');
@@ -145,12 +162,31 @@
       return schemeUrl(type, attach);
     }
 
+    function topicTestUrl(mode) {
+      const topicText = mode === 'plain' ? '#Python[话题]#' : '\uFEFF#Python[话题]#\uFEFF';
+      const noteText = { content: `话题协议测试 ${mode.toUpperCase()}\n\n${topicText}` };
+      const attach = {
+        note_title: `蓝色话题测试 ${mode.toUpperCase()}`,
+        note_text_v2: noteText,
+        image_resources: [{ url: imageUrl }]
+      };
+      if (mode === 'entity') {
+        noteText.hash_tag = [testTopic];
+        attach.hash_tag = [testTopic];
+        attach.topics = [testTopic];
+      }
+      return schemeUrl('photo', attach);
+    }
+
     document.querySelector('#test-photo').href = buildUrl(
       'photo', '测试标题 ✨🌷💗', '测试文案 ✨🥰📸', '#测试话题-图文'
     );
     document.querySelector('#test-video').href = buildUrl(
       'video', '测试视频 ✨🌷🎬', '测试视频 ✨🥰🎥', '#测试话题-视频'
     );
+    document.querySelector('#topic-test-a').href = topicTestUrl('plain');
+    document.querySelector('#topic-test-b').href = topicTestUrl('marker');
+    document.querySelector('#topic-test-c').href = topicTestUrl('entity');
 
     document.querySelector('#custom-form').addEventListener('submit', event => {
       event.preventDefault();
